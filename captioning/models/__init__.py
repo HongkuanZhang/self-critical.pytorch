@@ -55,6 +55,8 @@ def setup(opt):
     elif opt.caption_model == 'denseatt':
         model = DenseAttModel(opt)
     # Transformer
+    
+    # 返回Transformer模型
     elif opt.caption_model == 'transformer':
         if getattr(opt, 'cached_transformer', False):
             model = cachedTransformer(opt)
