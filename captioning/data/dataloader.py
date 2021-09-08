@@ -18,6 +18,7 @@ import torch.utils.data as data
 import multiprocessing
 import six
 
+# 这个类就是读取图像feature的loader
 class HybridLoader:
     """
     If db_path is a director, then use normal file loading
@@ -30,7 +31,9 @@ class HybridLoader:
                (Copied this idea from vilbert)
     """
     def __init__(self, db_path, ext, in_memory=False):
+        # image feature存储的地址
         self.db_path = db_path
+        # 文件后缀
         self.ext = ext
         if self.ext == '.npy':
             self.loader = lambda x: np.load(six.BytesIO(x))
@@ -53,14 +56,19 @@ class HybridLoader:
             self.db_type = 'h5'
             self.loader = lambda x: np.array(x).astype('float32')
         else:
+            # 执行这个，因为我们给的db_path是data/cocotalk/这样的一个地址类型而不是文件
             self.db_type = 'dir'
 
+        # 这个很好理解就是如果是in_memory则存储之前load过的图像feature，初始化的时候是空的
+        # 之后随着loading慢慢加入进来
         self.in_memory = in_memory
         if self.in_memory:
             self.features = {}
     
     def get(self, key):
-
+        # 从loader中加载数据
+        # 如果是有存储memory，则先看看要加载的数据是否在memory中
+        # 是的话直接加载
         if self.in_memory and key in self.features:
             # We save f_input because we want to save the
             # compressed bytes to save memory
@@ -72,12 +80,16 @@ class HybridLoader:
         elif self.db_type == 'h5':
             f_input = h5py.File(self.db_path, 'r')[key]
         else:
+            # 如果没有memory或者不在memory中，则从源文件读取
+            # 地址+图像id+后缀来读取
             f_input = open(os.path.join(self.db_path, key + self.ext), 'rb').read()
 
+        # 当前加载feature如果不在memory中则加入进来，后面可以直接调用
         if self.in_memory and key not in self.features:
             self.features[key] = f_input
 
         # load image
+        # 通过上面的np.load(six.ByteIO(x))方法加载打开的文件，得到最后的feature。
         feat = self.loader(f_input)
 
         return feat
@@ -94,6 +106,7 @@ class Dataset(data.Dataset):
         return self.seq_length
 
     def __init__(self, opt):
+        # 这个类是继承dataset类的自己定义的dataset
         self.opt = opt
         self.seq_per_img = opt.seq_per_img
         
@@ -106,6 +119,7 @@ class Dataset(data.Dataset):
 
         # load the json file which contains additional information about the dataset
         print('DataLoader loading json file: ', opt.input_json)
+        # 参数里重要的有：info为json文件，包含ix_to_word为字典，以及images为每个图像的信息({'id','split','file_path'})
         self.info = json.load(open(self.opt.input_json))
         if 'ix_to_word' in self.info:
             self.ix_to_word = self.info['ix_to_word']
@@ -118,6 +132,7 @@ class Dataset(data.Dataset):
         Setting input_label_h5 to none is used when only doing generation.
         For example, when you need to test on coco test set.
         """
+        # h5_label_file为包含所有split的所有encoded captions的h5文件
         if self.opt.input_label_h5 != 'none':
             self.h5_label_file = h5py.File(self.opt.input_label_h5, 'r', driver='core')
             # load in the sequence data
@@ -126,12 +141,17 @@ class Dataset(data.Dataset):
             self.seq_length = seq_size[1]
             print('max sequence length in data is', self.seq_length)
             # load the pointers in full to RAM (should be small enough)
+            
+            # strat_ix和end_ix包含每个图片对应的cap的起始和终结index
+            # 注意这里start是从1开始，结束也是start+cap数，后面会解释为什么不是0开始。
             self.label_start_ix = self.h5_label_file['label_start_ix'][:]
             self.label_end_ix = self.h5_label_file['label_end_ix'][:]
         else:
             self.seq_length = 1
 
         self.data_in_memory = getattr(opt, 'data_in_memory', False)
+        
+        # 加载图像feature loader
         self.fc_loader = HybridLoader(self.opt.input_fc_dir, '.npy', in_memory=self.data_in_memory)
         self.att_loader = HybridLoader(self.opt.input_att_dir, '.npz', in_memory=self.data_in_memory)
         self.box_loader = HybridLoader(self.opt.input_box_dir, '.npy', in_memory=self.data_in_memory)
@@ -140,6 +160,7 @@ class Dataset(data.Dataset):
         print('read %d image features' %(self.num_images))
 
         # separate out indexes for each of the provided splits
+        # 将各个图像的三种类型的信息添加到对应split string的字典中
         self.split_ix = {'train': [], 'val': [], 'test': []}
         for ix in range(len(self.info['images'])):
             img = self.info['images'][ix]
@@ -161,6 +182,10 @@ class Dataset(data.Dataset):
         print('assigned %d images to split test' %len(self.split_ix['test']))
 
     def get_captions(self, ix, seq_per_img):
+        # 这个函数用来获得图像的全部caps
+        # 这里反正是保证每个图像对应seq_per_img数量的GT caps
+        # 之前说的start_index从1开始也是因为对于flickr数据会有每个图片对于caps数量不同的情况
+        # 对于coco其实这里处理之后完全没影响
         # fetch the sequence labels
         ix1 = self.label_start_ix[ix] - 1 #label_start_ix starts from 1
         ix2 = self.label_end_ix[ix] - 1
@@ -301,6 +326,9 @@ class Dataset(data.Dataset):
     def __len__(self):
         return len(self.info['images'])
 
+# train文件首先会调用这个得到DataLoader
+# 这个class会返回各个split的dataloader
+# class返回的loader参数包括opts，batch_size，dataset(这里有点特别)，以及各个split对应的dataloader
 class DataLoader:
     def __init__(self, opt):
         self.opt = opt
@@ -311,9 +339,13 @@ class DataLoader:
         self.loaders, self.iters = {}, {}
         for split in ['train', 'val', 'test']:
             if split == 'train':
+                # 就是返回一个sampler，对于train数据会是随机sample
                 sampler = MySampler(self.dataset.split_ix[split], shuffle=True, wrap=True)
             else:
+                # 对于test和eval是按顺序sample
                 sampler = MySampler(self.dataset.split_ix[split], shuffle=False, wrap=False)
+            # 注意！！这里的data.DataLoader中的data是torch.utils.data，而不是data文件夹
+            # 所以这里的DataLoader不是307行的那个，而是pytorch官方的loader
             self.loaders[split] = data.DataLoader(dataset=self.dataset,
                                                   batch_size=self.batch_size,
                                                   sampler=sampler,
@@ -397,6 +429,7 @@ class MySampler(data.sampler.Sampler):
     def next(self):
         return self.__next__()
 
+    # 初始化时候会调用，即对split的index list进行shuffle或者保持原样，然后返回。
     def _reset_iter(self):
         if self.shuffle:
             rand_perm = npr.permutation(len(self.index_list))
