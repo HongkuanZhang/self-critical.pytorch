@@ -34,6 +34,7 @@ def train(opt):
     ################################
     # Build dataloader
     ################################
+    # 得到多个split的DataLoader
     loader = DataLoader(opt)
     opt.vocab_size = loader.vocab_size
     opt.seq_length = loader.seq_length
@@ -48,6 +49,7 @@ def train(opt):
         'vocab': loader.get_vocab(),
     }
     # Load old infos(if there is) and check if models are compatible
+    # 这里是继续训练时候需要加载以前的训练信息，我们暂时不考虑这个
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'infos_'+opt.id+'.pkl')):
         with open(os.path.join(opt.start_from, 'infos_'+opt.id+'.pkl'), 'rb') as f:
             infos = utils.pickle_load(f)
@@ -62,6 +64,7 @@ def train(opt):
     #########################
     # naive dict logger
     histories = defaultdict(dict)
+    # 这里也是继续训练的内容，不用管
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'histories_'+opt.id+'.pkl')):
         with open(os.path.join(opt.start_from, 'histories_'+opt.id+'.pkl'), 'rb') as f:
             histories.update(utils.pickle_load(f))
@@ -72,15 +75,19 @@ def train(opt):
     ##########################
     # Build model
     ##########################
+    # 得到ix_to_word字典
     opt.vocab = loader.get_vocab()
+    # 得到模型
     model = models.setup(opt).cuda()
     del opt.vocab
+    # 加载之前训练的checkpoints
     # Load pretrained weights:
     if opt.start_from is not None and os.path.isfile(os.path.join(opt.start_from, 'model.pth')):
         model.load_state_dict(torch.load(os.path.join(opt.start_from, 'model.pth')))
     
     # Wrap generation model with loss function(used for training)
     # This allows loss function computed separately on each machine
+    # 这里主要是通过Wrap和data parallel让各个machine独立计算loss
     lw_model = LossWrapper(model, opt)
     # Wrap with dataparallel
     dp_model = torch.nn.DataParallel(model)
