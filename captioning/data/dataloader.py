@@ -226,52 +226,81 @@ class Dataset(data.Dataset):
             fc_batch.append(tmp_fc)
             att_batch.append(tmp_att)
             
+            # tmp_label形状为(5，max_len)
             tmp_label = np.zeros([seq_per_img, self.seq_length + 2], dtype = 'int')
             if hasattr(self, 'h5_label_file'):
                 # if there is ground truth
+                # tmp_seq为一个图像对应的5个caps，所以是把tmp_seq的每一行赋给tmp_label的每一行，不过tmp_label的每行的开头和结尾都为0，估计后面会插入start和end字符？
                 tmp_label[:, 1 : self.seq_length + 1] = tmp_seq
+            
+            # label_batch加入tmp_label
             label_batch.append(tmp_label)
 
             # Used for reward evaluation
             if hasattr(self, 'h5_label_file'):
                 # if there is ground truth
+                # 每个图片对应的所有GT caps给到gts
                 gts.append(self.label[self.label_start_ix[ix] - 1: self.label_end_ix[ix]])
             else:
                 gts.append([])
         
             # record associated info as well
             info_dict = {}
+            # 图像在图像list中的index
             info_dict['ix'] = ix
+            # 图像的id
             info_dict['id'] = self.info['images'][ix]['id']
+            # 图像的file_path
             info_dict['file_path'] = self.info['images'][ix].get('file_path', '')
             infos.append(info_dict)
 
         # #sort by att_feat length
         # fc_batch, att_batch, label_batch, gts, infos = \
         #     zip(*sorted(zip(fc_batch, att_batch, np.vsplit(label_batch, batch_size), gts, infos), key=lambda x: len(x[1]), reverse=True))
+        # 这里是个zip()和zip(*)常常联用的压缩-解压缩法
+        # 先是zip压缩，然后对压缩的内容通过sort进行排序，通过zip(*sort())得到解压缩返回给各个变量
+        # 但是这里没看懂key=lambda x:0是怎么个意思，一般都是Lambda x:x[0]这样的让zip中的第0个参数作为排序的key之类的，但是这里是个常数0，没看懂
+        # 感觉上面他注释的那个反而是合理的。。
         fc_batch, att_batch, label_batch, gts, infos = \
             zip(*sorted(zip(fc_batch, att_batch, label_batch, gts, infos), key=lambda x: 0, reverse=True))
         data = {}
+        # 把list中的sample数据stack成一个batch的数据
         data['fc_feats'] = np.stack(fc_batch)
+        
         # merge att_feats
+        # 原来att_features是对于每个图片的数量都是不同的，也就是X*C的形状，X对每个图片都不等
+        # 所以这里显示求得batch中的最大的X，即max_att_len，然后创建一个(batch_size,max_len,C)的全0向量作为batch向量
+        # 之后把每个X*C放入到里面，长度小于X的都自动被0 pad了，等于X的就直接赋值过去
         max_att_len = max([_.shape[0] for _ in att_batch])
         data['att_feats'] = np.zeros([len(att_batch), max_att_len, att_batch[0].shape[1]], dtype = 'float32')
         for i in range(len(att_batch)):
             data['att_feats'][i, :att_batch[i].shape[0]] = att_batch[i]
+        
+        # 因为上面用0去pad了，后面计算的时候需要忽略那些pad位置，因此这里生成mask
+        # mask的形状是和上面的前两维度相同的(b_s,max_len)，然后第二维度根据实际长度，从0到实际长度位置都为1，之后的位置都为0，类似于下面的样子
+        # e.g. data['att_masks'] = [[1,1,1,1,0,0],[1,1,1,0,0,0],[1,1,0,0,0,0]]
         data['att_masks'] = np.zeros(data['att_feats'].shape[:2], dtype='float32')
         for i in range(len(att_batch)):
             data['att_masks'][i, :att_batch[i].shape[0]] = 1
+        
+        # 如果attention features数量都相等则不需要mask，numpy的size方法可以得到所有维度之和，如(2,4,5)形状的array的size为40
         # set att_masks to None if attention features have same length
         if data['att_masks'].sum() == data['att_masks'].size:
             data['att_masks'] = None
 
         data['labels'] = np.vstack(label_batch)
         # generate mask
+        # 为label生成mask，即每个caption都通过pad 0达到了最大长度
+        # 所以这里先统计每个caption中非0元素，然后生成[1,1,1,..,0,0]的mask向量
+        # 其中，1的数量为非0元素(caption实际长度)+2(start和end)，0的数量为max_len+2减去1的数量
         nonzeros = np.array(list(map(lambda x: (x != 0).sum()+2, data['labels'])))
         mask_batch = np.zeros([data['labels'].shape[0], self.seq_length + 2], dtype = 'float32')
         for ix, row in enumerate(mask_batch):
             row[:nonzeros[ix]] = 1
         data['masks'] = mask_batch
+        
+        # 本来labels和masks分别是包含一个batch中所有数据的labels和masks，而没有对每个sample的5个labels和masks分割开来(即形状为(b_s*5,-1))
+        # 因此这里通过reshape变为(b_s,5,-1)的形状,labels的-1应该等于max_len，而mask的-1等于max_len+2
         data['labels'] = data['labels'].reshape(len(batch), seq_per_img, -1)
         data['masks'] = data['masks'].reshape(len(batch), seq_per_img, -1)
 
@@ -280,16 +309,26 @@ class Dataset(data.Dataset):
                           'it_max': len(self.split_ix[split]), 'wrapped': wrapped}
         data['infos'] = infos
 
+        # data是个字典，keys有fc_feats,att_feats,att_masks,labels,masks,gts,bounds,infos
+        # 每个key对应的value是一个batch的数据，为torch tensor
         data = {k:torch.from_numpy(v) if type(v) is np.ndarray else v for k,v in data.items()} # Turn all ndarray to torch tensor
 
         return data
 
     def __getitem__(self, index):
         """This function returns a tuple that is further passed to collate_fn
+        这里得到的是每个sample，batch数据是把多个sample给到collate_fn来得到的
+        我们平时一般是用的default的collate，即每个sample是一个tensor或者{key:tensor}
+        则默认一个batch的数据就是把batch size的tensor集合起来的tensor，即外侧增加batch维度
+        最后这个getitem输出的tuple会给到collate_fn，它会负责把数据batch起来
         """
+        # 这个index不是一个数，而是从sampler返回的三元组，详细见Mysampler部分
         ix, it_pos_now, wrapped = index #self.split_ix[index]
+        # Transformer的情况是用att不用fc，所以执行下面这个
         if self.use_att:
+            # 获取图像feature
             att_feat = self.att_loader.get(str(self.info['images'][ix]['id']))
+            # Reshape为K*C形状，K为feature数(不固定，每个图片对应的K不同，后面要padding)，C为feature维度(channel数量)
             # Reshape to K x C
             att_feat = att_feat.reshape(-1, att_feat.shape[-1])
             if self.norm_att_feat:
@@ -307,6 +346,7 @@ class Dataset(data.Dataset):
                 att_feat = np.stack(sorted(att_feat, key=lambda x:x[-1], reverse=True))
         else:
             att_feat = np.zeros((0,0), dtype='float32')
+        # fc不使用，所以为空向量(np.zeros((0))为形状为0的空向量)
         if self.use_fc:
             try:
                 fc_feat = self.fc_loader.get(str(self.info['images'][ix]['id']))
@@ -315,10 +355,12 @@ class Dataset(data.Dataset):
                 fc_feat = att_feat.mean(0)
         else:
             fc_feat = np.zeros((0), dtype='float32')
+        # 获取图像对应的多个caps
         if hasattr(self, 'h5_label_file'):
             seq = self.get_captions(ix, self.seq_per_img)
         else:
             seq = None
+        
         return (fc_feat,
                 att_feat, seq,
                 ix, it_pos_now, wrapped)
@@ -351,7 +393,7 @@ class DataLoader:
                                                   sampler=sampler,
                                                   pin_memory=True,
                                                   num_workers=4, # 4 is usually enough
-                                                  collate_fn=partial(self.dataset.collate_func, split=split),
+                                                  collate_fn=partial(self.dataset.collate_func, split=split), # 会把split传入给collate方程
                                                   drop_last=False)
             self.iters[split] = iter(self.loaders[split])
 
@@ -399,12 +441,14 @@ class DataLoader:
         for split in self.loaders.keys():
             self.loaders[split].sampler.load_state_dict(state_dict[split])
 
-
+# 这个mysampler会决定给到__getitem__的变量idx是什么样子
 class MySampler(data.sampler.Sampler):
     def __init__(self, index_list, shuffle, wrap):
         self.index_list = index_list
         self.shuffle = shuffle
         self.wrap = wrap
+        # wrap是一个信号，告诉sampler当sample全部batch的时候是否发出停止iteration的信号
+        # 对于train dataset设置为True即停止不发出信号，对于test设置为False即停止要发出停止信号
         # if wrap, there will be not stop iteration called
         # wrap True used during training, and wrap False used during test.
         self._reset_iter()
@@ -413,8 +457,13 @@ class MySampler(data.sampler.Sampler):
         return self
 
     def __next__(self):
+        # 在没有完成sample一个epoch中的所有example的时候，wrapped为False
+        # 即返回给getitem的wrapped变量为False
         wrapped = False
+        # 当iter_counter等于index_list长度，即sample最后一个batch的时候
+        # 根据self.wrap决定是变更wrapped为True还是发出停止信号
         if self.iter_counter == len(self._index_list):
+            # 初始化index list，对于train split会打乱
             self._reset_iter()
             if self.wrap:
                 wrapped = True
@@ -422,6 +471,7 @@ class MySampler(data.sampler.Sampler):
                 raise StopIteration()
         if len(self._index_list) == 0: # overflow when 0 samples
             return None
+        # Sampler会返回三个值，一个是当前iter对应的index，一个是进行的iter数量，最后一个是wrapped信号
         elem = (self._index_list[self.iter_counter], self.iter_counter+1, wrapped)
         self.iter_counter += 1
         return elem
