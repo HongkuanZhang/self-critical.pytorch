@@ -270,7 +270,9 @@ class TransformerModel(AttModel):
             Encoder(EncoderLayer(d_model, c(attn), c(ff), dropout), N_enc),
             Decoder(DecoderLayer(d_model, c(attn), c(attn), 
                                  c(ff), dropout), N_dec),
+            # 注意这里是不对输入进行embedding，因为输入是图像feature，就直接输入给encoder就可以而不需要embedding和位置encoding
             lambda x:x, # nn.Sequential(Embeddings(d_model, src_vocab), c(position)),
+            # target端的输入进行embedding和position encoding时候使用这个模块
             nn.Sequential(Embeddings(d_model, tgt_vocab), c(position)),
             Generator(d_model, tgt_vocab))
         
