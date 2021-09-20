@@ -137,6 +137,8 @@ class Decoder(nn.Module):
             x = layer(x, memory, src_mask, tgt_mask)
         return self.norm(x)
 
+# decoderlayer和encoderlayer很类似，稍微不同的是多了一个src_attn来计算cross-attention，其实就是
+# self-att，只不过key和value变成了encoder的输出。另外由于多个attention所以残差连接有3个
 class DecoderLayer(nn.Module):
     "Decoder is made of self-attn, src-attn, and feed forward (defined below)"
     def __init__(self, size, self_attn, src_attn, feed_forward, dropout):
@@ -154,12 +156,17 @@ class DecoderLayer(nn.Module):
         x = self.sublayer[1](x, lambda x: self.src_attn(x, m, m, src_mask))
         return self.sublayer[2](x, self.feed_forward)
 
+# 这个mask是target端为了防止看到未来词而设置的下三角形的mask
+# 具体实现上是用np.triu方法对seq_len*seq_len的单位矩阵进行处理，k=1表示对角线以上的第一条线(不包含对角线)及其上方都为1，其他为0，即对角线为0，对角线下方也为0的上三角形。
+# 这个k控制哪条对角线的上方都为1，如果k=0表示对角线及以上都为1(包含对角线)，如果k=-1表示对角线以下的第一条线及其上方都为1，其他为0.
+# 最后对处理过的矩阵的各个元素进行是否为0的判断，得到了充满True和False的对角矩阵，对角线及其下方都为True，其他为False
 def subsequent_mask(size):
     "Mask out subsequent positions."
     attn_shape = (1, size, size)
     subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
     return torch.from_numpy(subsequent_mask) == 0
 
+# 没啥特别的，就是对qkv计算得到同形状的输出，输出会被用于和输入残差连接
 def attention(query, key, value, mask=None, dropout=None):
     "Compute 'Scaled Dot Product Attention'"
     d_k = query.size(-1)
@@ -172,6 +179,9 @@ def attention(query, key, value, mask=None, dropout=None):
         p_attn = dropout(p_attn)
     return torch.matmul(p_attn, value), p_attn
 
+# 这个也没啥特别的，包含了四个linear层，前三个分别用于对输入的query(target input)，key(encoder output)和value(encoder output)
+# 分别进行线性变换得到真正的quert,key,value，每个的形状都是(b_s,8,source_len/target_len,64)，然后这三个再进行attention计算。
+# 最后计算结果形状为(b_s,8,target_len,64)，然后变形为(b_s,target_len,512)，然后用最后一个linear对其进行线性处理得到同形状(b_s,target_len,512)的输出
 class MultiHeadedAttention(nn.Module):
     def __init__(self, h, d_model, dropout=0.1):
         "Take in model size and number of heads."
@@ -205,6 +215,7 @@ class MultiHeadedAttention(nn.Module):
              .view(nbatches, -1, self.h * self.d_k)
         return self.linears[-1](x)
 
+# FFN层，只不过是通过两个线性层，中间有通过激活函数和dropout
 class PositionwiseFeedForward(nn.Module):
     "Implements FFN equation."
     def __init__(self, d_model, d_ff, dropout=0.1):
@@ -225,6 +236,7 @@ class Embeddings(nn.Module):
     def forward(self, x):
         return self.lut(x) * math.sqrt(self.d_model)
 
+# 对输入的word embedding计算position encoding，并且对两者相加
 class PositionalEncoding(nn.Module):
     "Implement the PE function."
     def __init__(self, d_model, dropout, max_len=5000):
