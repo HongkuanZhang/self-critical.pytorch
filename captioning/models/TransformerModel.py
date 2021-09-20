@@ -304,6 +304,9 @@ class TransformerModel(AttModel):
                                     ((nn.BatchNorm1d(self.d_model),) if self.use_bn==2 else ())))
         
         delattr(self, 'embed')
+        # 注意这里embed和fc_embed都是没做任何处理，如线性层映射为d_model之类的也没做
+        # 只是直接让输出等于输入，所以我觉得这里的维度应该是和CNN输出的维度设置为相同
+        # 如FC的维度是1024，那么d_model应该也是设置为1024，然后直接输入给encoderlayer，输出维度也是1024
         self.embed = lambda x : x
         delattr(self, 'fc_embed')
         self.fc_embed = lambda x : x
@@ -312,7 +315,7 @@ class TransformerModel(AttModel):
 
         tgt_vocab = self.vocab_size + 1
 
-
+        # 用make_model来得到EncoderDecoder模型
         self.model = self.make_model(0, tgt_vocab,
             N_enc=self.N_enc,
             N_dec=self.N_dec,
@@ -320,7 +323,7 @@ class TransformerModel(AttModel):
             d_ff=self.d_ff,
             h=self.h,
             dropout=self.dropout)
-
+    # 从这里继续~
     def logit(self, x): # unsafe way
         return self.model.generator.proj(x)
 
