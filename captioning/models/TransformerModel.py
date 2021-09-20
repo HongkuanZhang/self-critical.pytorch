@@ -23,6 +23,9 @@ import numpy as np
 from .CaptionModel import CaptionModel
 from .AttModel import sort_pack_padded_sequence, pad_unsort_packed_sequence, pack_wrapper, AttModel
 
+# EncoderDecoder类，包含encoder，decoder，source embedding，target embedding和生成单词的generator
+# forward方法需要source和其mask(形状为(b_s,max_len)，非pad位置为1，pad位置为0)
+# 以及target及其mask(形状为...)
 class EncoderDecoder(nn.Module):
     """
     A standard Encoder-Decoder architecture. Base for this and many 
@@ -60,6 +63,7 @@ def clones(module, N):
     "Produce N identical layers."
     return nn.ModuleList([copy.deepcopy(module) for _ in range(N)])
 
+# Encoder包含六层Encoderlayer，每个layer输入输出形状相同，最终层输出需要进行layernorm
 class Encoder(nn.Module):
     "Core encoder is a stack of N layers"
     def __init__(self, layer, N):
@@ -86,6 +90,9 @@ class LayerNorm(nn.Module):
         std = x.std(-1, keepdim=True)
         return self.a_2 * (x - mean) / (std + self.eps) + self.b_2
 
+# 这个类接收的输入是一个输入和一个函数，然后他会把输入先norm，然后给到函数得到输出
+# 最后将输入和输出进行残差连接。这个类在encoderlayer中会用到2次
+# 分别是输入和attention输出进行连接，一个是输入和FFN输出进行连接
 class SublayerConnection(nn.Module):
     """
     A residual connection followed by a layer norm.
@@ -100,6 +107,8 @@ class SublayerConnection(nn.Module):
         "Apply residual connection to any sublayer with the same size."
         return x + self.dropout(sublayer(self.norm(x)))
 
+# 每个encoderlayer包含一个self-attention和FFN，以及两个残差连接
+# 如上所述分别连接输入和attention输出，以及输入和FFN输出
 class EncoderLayer(nn.Module):
     "Encoder is made up of self-attn and feed forward (defined below)"
     def __init__(self, size, self_attn, feed_forward, dropout):
@@ -114,6 +123,8 @@ class EncoderLayer(nn.Module):
         x = self.sublayer[0](x, lambda x: self.self_attn(x, x, x, mask))
         return self.sublayer[1](x, self.feed_forward)
 
+# Decoder包含N个decoderlayer，每个layer接收的是target端的输入(GT caption)，encoder的【最后一层encoderlayer的输出】，以及两端的mask
+# encoder最后一层的输出给到每个decoderlayer来计算输出，最后对结果用layernorm正规化
 class Decoder(nn.Module):
     "Generic N layer decoder with masking."
     def __init__(self, layer, N):
