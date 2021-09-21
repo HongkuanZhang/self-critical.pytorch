@@ -296,6 +296,8 @@ class TransformerModel(AttModel):
         self.dropout = getattr(opt, 'dropout', 0.1)
 
         delattr(self, 'att_embed')
+        # 这里的att_embed会把输入的图像feature的维度转换为d_model维度
+        # 他被用于和attention计算有关的模型中，包括transformer的输入部分的embedding
         self.att_embed = nn.Sequential(*(
                                     ((nn.BatchNorm1d(self.att_feat_size),) if self.use_bn else ())+
                                     (nn.Linear(self.att_feat_size, self.d_model),
@@ -304,9 +306,7 @@ class TransformerModel(AttModel):
                                     ((nn.BatchNorm1d(self.d_model),) if self.use_bn==2 else ())))
         
         delattr(self, 'embed')
-        # 注意这里embed和fc_embed都是没做任何处理，如线性层映射为d_model之类的也没做
-        # 只是直接让输出等于输入，所以我觉得这里的维度应该是和CNN输出的维度设置为相同
-        # 如FC的维度是1024，那么d_model应该也是设置为1024，然后直接输入给encoderlayer，输出维度也是1024
+        # 注意这里embed和fc_embed都是没做任何处理，只是直接让输出等于输入，如线性层映射为d_model之类的也没做
         self.embed = lambda x : x
         delattr(self, 'fc_embed')
         self.fc_embed = lambda x : x
@@ -344,9 +344,10 @@ class TransformerModel(AttModel):
         # 然后根据最大长度来裁剪feature和mask
         att_feats, att_masks = self.clip_att(att_feats, att_masks)
         # 这一步根据mask来对features先进行embedding，然后根据长度sort和pack，然后再unpack并恢复为unsort
-        # 注意如果这里的mask为None，即默认输入序列长度相同，那么只对输入进行embedding，且由于att_embed
+        # 注意如果这里的mask为None，即默认输入序列长度相同，那么只对输入进行embedding，即由att_embed将维度映射为d_model
         att_feats = pack_wrapper(self.att_embed, att_feats, att_masks)
 
+        # 如果没有
         if att_masks is None:
             att_masks = att_feats.new_ones(att_feats.shape[:2], dtype=torch.long)
         att_masks = att_masks.unsqueeze(-2)
