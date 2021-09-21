@@ -343,7 +343,8 @@ class TransformerModel(AttModel):
         # clip_att为AttModel这个父类的方法，就是根据mask的长度得到feature sequences的max_len
         # 然后根据最大长度来裁剪feature和mask
         att_feats, att_masks = self.clip_att(att_feats, att_masks)
-
+        # 这一步根据mask来对features先进行embedding，然后根据长度sort和pack，然后再unpack并恢复为unsort
+        # 注意如果这里的mask为None，即默认输入序列长度相同，那么只对输入进行embedding，且由于att_embed
         att_feats = pack_wrapper(self.att_embed, att_feats, att_masks)
 
         if att_masks is None:
