@@ -323,7 +323,8 @@ class TransformerModel(AttModel):
             d_ff=self.d_ff,
             h=self.h,
             dropout=self.dropout)
-    # 从这里继续~
+    
+    # 这个函数就是调用generator中的linear层，来把decoder的输出映射为vocab size大小
     def logit(self, x): # unsafe way
         return self.model.generator.proj(x)
 
@@ -337,7 +338,10 @@ class TransformerModel(AttModel):
 
         return fc_feats[...,:0], att_feats[...,:0], memory, att_masks
 
+    # sdfs
     def _prepare_feature_forward(self, att_feats, att_masks=None, seq=None):
+        # clip_att为AttModel这个父类的方法，就是根据mask的长度得到feature sequences的max_len
+        # 然后根据最大长度来裁剪feature和mask
         att_feats, att_masks = self.clip_att(att_feats, att_masks)
 
         att_feats = pack_wrapper(self.att_embed, att_feats, att_masks)
