@@ -347,11 +347,14 @@ class TransformerModel(AttModel):
         # 注意如果这里的mask为None，即默认输入序列长度相同，那么只对输入进行embedding，即由att_embed将维度映射为d_model
         att_feats = pack_wrapper(self.att_embed, att_feats, att_masks)
 
-        # 如果没有
+        # 如果没有mask则生成全为1的mask
         if att_masks is None:
             att_masks = att_feats.new_ones(att_feats.shape[:2], dtype=torch.long)
         att_masks = att_masks.unsqueeze(-2)
 
+        # seq是图像对应的captions，具体定义见forward部分
+        # 这里是根据seq来生成对应的mask，注意这个mask是下三角mask(下面的subsequent mask)和pad mask(下面的seq_mask)
+        # 求交集得到的decoder mask，用于decoder端不把attention加载未来token以及pad token上。
         if seq is not None:
             # crop the last one
             # seq = seq[:,:-1]
@@ -372,12 +375,18 @@ class TransformerModel(AttModel):
         return att_feats, seq, att_masks, seq_mask
 
     def _forward(self, fc_feats, att_feats, seq, att_masks=None):
+        # seq应该是图像对应的多个captions，seq_per_img是每个图像对应caption的数量，seq_len是caption进行pad后得到的最大长度。
+        # 这里给变成了 B*seq_per_img，seq_len 的形状
         if seq.ndim == 3:  # B * seq_per_img * seq_len
             seq = seq.reshape(-1, seq.shape[2])
+        
+        # 这个函数返回encoder端的att_features和att_mask，以及decoder端的seq和seq_mask
         att_feats, seq, att_masks, seq_mask = self._prepare_feature_forward(att_feats, att_masks, seq)
 
+        # 模型计算输出
         out = self.model(att_feats, seq, att_masks, seq_mask)
 
+        # 通过generator得到vocab size的单词分布
         outputs = self.model.generator(out)
         return outputs
         # return torch.cat([_.unsqueeze(1) for _ in outputs], 1)
