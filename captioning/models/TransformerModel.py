@@ -358,10 +358,19 @@ class TransformerModel(AttModel):
         if seq is not None:
             # crop the last one
             # seq = seq[:,:-1]
-            seq_mask = (seq.data != self.eos_idx) & (seq.data != self.pad_idx)
-            seq_mask[:,0] = 1 # bos
+            
+            # 下面得到的是一个由True和False组成的bool seq mask矩阵
+            seq_mask = (seq.data != self.eos_idx) & (seq.data != self.pad_idx) 
+            
+            # bos,这句话是强制让mask中的第一个位置为True，这里给bool矩阵赋值时，
+            # 赋值为非0数值则对应赋值位变为True，反之为False，这和一般的矩阵赋值不同要注意
+            seq_mask[:,0] = 1 
 
+            # 这里unsqueeze是把mask矩阵的形状从(bs,max_len)变为(bs，1, max_len)
+            # 便于后面和下三角矩阵进行求交集
             seq_mask = seq_mask.unsqueeze(-2)
+            # 下三角矩阵形状为(1,max_len,max_len)，和上面的mask求交集得到(bs,max_len,max_len)
+            # 这两个mask的合集得到的mask确保了每个token既不attend到未来token，又不attend到pad token
             seq_mask = seq_mask & subsequent_mask(seq.size(-1)).to(seq_mask)
 
             seq_per_img = seq.shape[0] // att_feats.shape[0]
