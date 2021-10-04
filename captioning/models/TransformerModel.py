@@ -373,6 +373,10 @@ class TransformerModel(AttModel):
             # 这两个mask的合集得到的mask确保了每个token既不attend到未来token，又不attend到pad token
             seq_mask = seq_mask & subsequent_mask(seq.size(-1)).to(seq_mask)
 
+            # 这里判定seq和all_feats的batch size维度是不是相同的，是因为考虑到有的数据loading方法
+            # 在loading的all_feats是batch size比如为b_s，而seq的size是seq_per_img*b_s
+            # 这是因为一个图像对应多个如5个caps，因此这里是查看loading的数据是不是seq数量是feats数量的5倍
+            # 如果是的话需要对feats和masks进行expand，不是的话(即两者batch size相同)则不需要expand
             seq_per_img = seq.shape[0] // att_feats.shape[0]
             if seq_per_img > 1:
                 # 根据seq_per_img=n，对att_feats和att_masks分别进行第二个维度上的expand
