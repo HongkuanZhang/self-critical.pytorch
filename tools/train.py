@@ -163,7 +163,7 @@ def train(opt):
                 # 如果设置了schedule sampling，且当前epoch触发了sampling则执行
                 # Assign the scheduled sampling prob
                 if epoch > opt.scheduled_sampling_start and opt.scheduled_sampling_start >= 0:
-                    # sampling的概率随着epoch增加成倍增加(每个epoch概率增加一个prob)
+                    # sampling的概率随着epoch增加成倍增加(每相隔scheduled_sampling_increase_every多个epochs，概率增加一个prob)
                     frac = (epoch - opt.scheduled_sampling_start) // opt.scheduled_sampling_increase_every
                     opt.ss_prob = min(opt.scheduled_sampling_increase_prob  * frac, opt.scheduled_sampling_max_prob)
                     model.ss_prob = opt.ss_prob
