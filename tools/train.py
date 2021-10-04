@@ -231,7 +231,8 @@ def train(opt):
             if not drop_worst_flag:
                 loss = model_out['loss'].mean()
             else:
-                # drop_worst的情况下去掉最小的一些loss值再求平均值
+                # drop_worst的情况下去掉最大的一些loss值再求平均值
+                # 注意topk这里largest设为False，因此前排的是小的值，即舍弃的为较大的loss值(负值)
                 loss = model_out['loss']
                 loss = torch.topk(loss, k=int(loss.shape[0] * (1-opt.drop_worst_rate)), largest=False)[0].mean()
 
