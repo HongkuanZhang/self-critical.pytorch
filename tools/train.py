@@ -185,7 +185,7 @@ def train(opt):
                     struc_flag = False
                 
                 # 这里也没太懂，貌似是扔掉最坏的模型？
-                # 看后面懂了，并不是扔掉模型，而是在计算loss的时候扔掉一部分值最小的loss(只保留top的losses)
+                # 看后面懂了，并不是扔掉模型，而是在计算loss的时候扔掉一部分值较大的loss(只保留top的losses)
                 # 这个flag要和drop_worse_rate同步设置，然后会扔掉int(长度*rate)的最低值。
                 if opt.drop_worst_after != -1 and epoch >= opt.drop_worst_after:
                     drop_worst_flag = True
