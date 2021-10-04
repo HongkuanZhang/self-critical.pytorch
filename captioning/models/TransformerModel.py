@@ -166,7 +166,7 @@ def subsequent_mask(size):
     subsequent_mask = np.triu(np.ones(attn_shape), k=1).astype('uint8')
     return torch.from_numpy(subsequent_mask) == 0
 
-# 没啥特别的，就是对qkv计算得到同形状的输出，输出会被用于和输入残差连接
+# 没啥特别的，就是对qkv计算得到同形状的输出以及attention scores的归一化结果p_attn，同形状输出会被用于和输入残差连接
 def attention(query, key, value, mask=None, dropout=None):
     "Compute 'Scaled Dot Product Attention'"
     d_k = query.size(-1)
