@@ -375,6 +375,8 @@ class TransformerModel(AttModel):
 
             seq_per_img = seq.shape[0] // att_feats.shape[0]
             if seq_per_img > 1:
+                # 根据seq_per_img=n，对att_feats和att_masks分别进行第二个维度上的expand
+                # 形状变为(bs,n,max_len,d_model)和(bs,n,max_len)
                 att_feats, att_masks = utils.repeat_tensors(seq_per_img,
                     [att_feats, att_masks]
                 )
