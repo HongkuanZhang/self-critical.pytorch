@@ -88,12 +88,12 @@ def train(opt):
     # Wrap generation model with loss function(used for training)
     # This allows loss function computed separately on each machine
     # 这里主要是通过Wrap和data parallel让各个machine独立计算loss
+    # lw_model是一个LossWrpper类，初始化这个类会得到有model和loss属性，值分别为括号里的对应属性的值
     lw_model = LossWrapper(model, opt)
     # Wrap with dataparallel
     dp_model = torch.nn.DataParallel(model)
     dp_model.vocab = getattr(model, 'vocab', None)  # nasty
     
-    # wrap之后的模型名称
     dp_lw_model = torch.nn.DataParallel(lw_model)
 
     ##########################
@@ -223,6 +223,8 @@ def train(opt):
             optimizer.zero_grad()
             # 5个数据以及3个flag给到模型，不太清除gts那个是什么，还是需要看get_batch方法
             # 计算模型输出
+            # 注意这里的model是被LossWrapper这个类包装后的模型，所以下面的所有参数先是给到了这个类的forward
+            # 然后这个类用到了模型中用不到的参数，比如各种flag之类的，然后把模型需要的参数再传给模型，具体见这个类的forward函数部分
             model_out = dp_lw_model(fc_feats, att_feats, labels, masks, att_masks, data['gts'], torch.arange(0, len(data['gts'])), sc_flag, struc_flag, drop_worst_flag)
 
             # 计算loss
