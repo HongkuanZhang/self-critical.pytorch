@@ -46,6 +46,7 @@ def getCOCO(dataset):
 
 def language_eval(dataset, preds, preds_n, eval_kwargs, split):
     model_id = eval_kwargs['id']
+    # opts默认为1
     eval_oracle = eval_kwargs.get('eval_oracle', 0)
     
     # create output dictionary
@@ -57,8 +58,12 @@ def language_eval(dataset, preds, preds_n, eval_kwargs, split):
             dataset_file = 'data/dataset_coco.json'
         elif 'flickr30k' in dataset or 'f30k' in dataset:
             dataset_file = 'data/dataset_flickr30k.json'
+            
+        # 把每个图片对应的多个GT sents和生成sents给到training_sentences和generate_sentences
         training_sentences = set([' '.join(__['tokens']) for _ in json.load(open(dataset_file))['images'] if not _['split'] in ['val', 'test'] for __ in _['sentences']])
+        # pred_n是根据生成句子的ppl排序的
         generated_sentences = set([_['caption'] for _ in preds_n])
+        # 计算生成的novel句子
         novels = generated_sentences - training_sentences
         out['novel_sentences'] = float(len(novels)) / len(preds_n)
         tmp = [_.split() for _ in generated_sentences]
@@ -127,14 +132,21 @@ def language_eval(dataset, preds, preds_n, eval_kwargs, split):
 
 def eval_split(model, crit, loader, eval_kwargs={}):
     verbose = eval_kwargs.get('verbose', True)
+    # 是否print每个instance的beam生成结果
     verbose_beam = eval_kwargs.get('verbose_beam', 0)
+    # 是否计算和print评价集上的loss
     verbose_loss = eval_kwargs.get('verbose_loss', 1)
+    # 利用的评价集大小
     num_images = eval_kwargs.get('num_images', eval_kwargs.get('val_images_use', -1))
+    # split名称
     split = eval_kwargs.get('split', 'val')
+    # 评价指标为Cider还是loss,默认为0，即loss评价
     lang_eval = eval_kwargs.get('language_eval', 0)
+    # 这个参数由input_json参数赋值，默认为'data/coco.json'
     dataset = eval_kwargs.get('dataset', 'coco')
     beam_size = eval_kwargs.get('beam_size', 1)
     sample_n = eval_kwargs.get('sample_n', 1)
+    # 默认为0，不进行remove bad ending
     remove_bad_endings = eval_kwargs.get('remove_bad_endings', 0)
     os.environ["REMOVE_BAD_ENDINGS"] = str(remove_bad_endings) # Use this nasty way to make other code clean since it's a global configuration
     device = eval_kwargs.get('device', 'cuda')
@@ -178,13 +190,21 @@ def eval_split(model, crit, loader, eval_kwargs={}):
             for i in range(fc_feats.shape[0]):
                 print('\n'.join([utils.decode_sequence(model.vocab, _['seq'].unsqueeze(0))[0] for _ in model.done_beams[i]]))
                 print('--' * 10)
+        
+        # 这里得到所有图像对应的str captions
         sents = utils.decode_sequence(model.vocab, seq)
 
         for k, sent in enumerate(sents):
             entry = {'image_id': data['infos'][k]['id'], 'caption': sent, 'perplexity': perplexity[k].item(), 'entropy': entropy[k].item()}
+            
+            # 不执行，控制是否在entry中加入image_path
             if eval_kwargs.get('dump_path', 0) == 1:
                 entry['file_name'] = data['infos'][k]['file_path']
+            
+            # 这个predictions里加入了eval数据及生成的captions以及计算的ppl和entropy之类的信息
             predictions.append(entry)
+            
+            # 不执行，控制是否输出图像
             if eval_kwargs.get('dump_images', 0) == 1:
                 # dump the raw image to vis/ folder
                 cmd = 'cp "' + os.path.join(eval_kwargs['image_root'], data['infos'][k]['file_path']) + '" vis/imgs/img' + str(len(predictions)) + '.jpg' # bit gross
@@ -194,6 +214,7 @@ def eval_split(model, crit, loader, eval_kwargs={}):
             if verbose:
                 print('image %s: %s' %(entry['image_id'], entry['caption']))
 
+        # 具体还没研究这个
         if sample_n > 1:
             eval_split_n(model, n_predictions, [fc_feats, att_feats, att_masks, data], eval_kwargs)
         
@@ -203,6 +224,11 @@ def eval_split(model, crit, loader, eval_kwargs={}):
             ix1 = min(ix1, num_images)
         else:
             num_images = ix1
+            
+        # 没太懂为什么这里range中的参数为 n - ix1
+        # n为当前读入数据的数量，ix1为全部数据的数量，这样相减不是个负数么
+        # 明白了，就是n小于ix1的时候啥也不做，但是n大于ix1的时候会让predictions pop掉
+        # 多读入的数据
         for i in range(n - ix1):
             predictions.pop()
 
@@ -216,8 +242,13 @@ def eval_split(model, crit, loader, eval_kwargs={}):
     if len(n_predictions) > 0 and 'perplexity' in n_predictions[0]:
         n_predictions = sorted(n_predictions, key=lambda x: x['perplexity'])
     if not os.path.isdir('eval_results'):
+        print('Creat eval results save path: eval_results')
         os.mkdir('eval_results')
-    torch.save((predictions, n_predictions), os.path.join('eval_results/', '.saved_pred_'+ eval_kwargs['id'] + '_' + split + '.pth'))
+    torch.save((predictions, n_predictions), os.path.join('eval_results/', 'saved_pred_'+ eval_kwargs['id'] + '_' + split + '.pth'))
+    
+    print('Results saved in:', os.path.join('eval_results/', 'saved_pred_'+ eval_kwargs['id'] + '_' + split + '.pth'))
+    
+    # metric评价eval结果
     if lang_eval == 1:
         lang_stats = language_eval(dataset, predictions, n_predictions, eval_kwargs, split)
 
