@@ -75,6 +75,7 @@ def language_eval(dataset, preds, preds_n, eval_kwargs, split):
 
     # encoder.FLOAT_REPR = lambda o: format(o, '.3f')
 
+    # 这个路径就是存储一个包含image_id和captions字典的json文件
     cache_path = os.path.join('eval_results/', '.cache_'+ model_id + '_' + split + '.json')
 
     coco = getCOCO(dataset)
@@ -87,8 +88,11 @@ def language_eval(dataset, preds, preds_n, eval_kwargs, split):
     print('using %d/%d predictions' % (len(preds_filt), len(preds)))
     json.dump(preds_filt, open(cache_path, 'w')) # serialize to temporary json file. Sigh, COCO API...
 
+    # 根据cache路径加载results文件
     cocoRes = coco.loadRes(cache_path)
+    # 创建 cocoEval object by taking coco and cocoRes
     cocoEval = COCOEvalCap(coco, cocoRes)
+    # evaluate on a subset of images by setting this
     cocoEval.params['image_id'] = cocoRes.getImgIds()
     cocoEval.evaluate()
 
@@ -196,6 +200,8 @@ def eval_split(model, crit, loader, eval_kwargs={}):
         sents = utils.decode_sequence(model.vocab, seq)
 
         for k, sent in enumerate(sents):
+            # coco评价的时候需要每个image的id和对应的caption，需要把他们存在字典里(后面的ppl啥的其实不是必要的，是code作者自己加的)
+            # 然后多个图片的字典被放在一个list中，存入json
             entry = {'image_id': data['infos'][k]['id'], 'caption': sent, 'perplexity': perplexity[k].item(), 'entropy': entropy[k].item()}
             
             # 不执行，控制是否在entry中加入image_path
