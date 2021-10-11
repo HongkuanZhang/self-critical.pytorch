@@ -93,9 +93,12 @@ def language_eval(dataset, preds, preds_n, eval_kwargs, split):
     # 创建 cocoEval object by taking coco and cocoRes
     cocoEval = COCOEvalCap(coco, cocoRes)
     # evaluate on a subset of images by setting this
+    # 我们的情况是在所有eval上测试，这行不加也行，不过不用管这个
     cocoEval.params['image_id'] = cocoRes.getImgIds()
     cocoEval.evaluate()
 
+    # 用metric计算每个metric得分
+    # 如果想知道能不能计算日文，可以弄个fake的cache根据上面的流程试试
     for metric, score in cocoEval.eval.items():
         out[metric] = score
     # Add mean perplexity
