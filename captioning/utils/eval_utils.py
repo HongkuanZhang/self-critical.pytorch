@@ -45,6 +45,7 @@ def getCOCO(dataset):
 
 
 def language_eval(dataset, preds, preds_n, eval_kwargs, split):
+    # preds_n是一个空list，因为我们没有执行那个sample_n
     model_id = eval_kwargs['id']
     # opts默认为1
     eval_oracle = eval_kwargs.get('eval_oracle', 0)
